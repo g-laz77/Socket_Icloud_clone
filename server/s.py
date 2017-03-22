@@ -20,6 +20,17 @@ def cdownload(inp, flag, filename):
     cont = s2.recv(1024)
     if cont == "folder":
         os.mkdir(filename) 
+        file_list = []
+        while 1:
+            index = s2.recv(1024)
+            if index == "END":
+                break
+            #print index
+            file_list.append(filename+'/'+index.split()[0])
+        s2.close()
+        for f in file_list:
+            inpu = "download tcp " + f
+            cdownload(inpu,"tcp",f)
         print "Folder created.."
         return
     fl = 1
@@ -138,13 +149,38 @@ def client():
 
 def sdownload(comm,conn):
     fils = os.listdir(os.getcwd())
+    fils2 = []
+    for path, subdirs, files in os.walk(os.curdir):
+        for name in files:
+             fils2.append(os.path.join(path,name)[2:]) 
     if comm[2] in fils:
         
         if os.path.isdir(comm[2]):
             conn.send("folder")
+            time.sleep(0.5)
+            di = os.getcwd()+'/'+comm[2]
+            comm = "index longlist"
+            sindex(conn,comm.split(),di)
             conn.close()
             return
 
+        f = open(comm[2],'rb')
+        l = f.read(1024)
+
+        while (l):
+            conn.send(l)
+            l = f.read(1024)
+
+        time.sleep(0.5)
+        conn.send("End")
+        time.sleep(0.5)
+        perm = oct(os.stat(comm[2]).st_mode)[-4:]
+        conn.send(perm)
+        f.close()
+        time.sleep(0.5)
+        print('Done sending')
+        conn.send(comm[2]+"\t"+repr(os.path.getsize(comm[2]))+"\t"+hash_md5(comm[2]))
+    elif comm[2] in fils2:
         f = open(comm[2],'rb')
         l = f.read(1024)
 
@@ -189,16 +225,17 @@ def shash(conn,comm):
         time.sleep(0.5)
         conn.send("END")
 
-def sindex(conn,comm):
+def sindex(conn,comm,di):
     if comm[1] == "longlist":
-        fils = os.listdir(os.getcwd())
+        fils = os.listdir(di)
         for f in fils:
-            ftim = os.path.getmtime(f)
-            if os.path.isdir(f):
+            print f
+            ftim = os.path.getmtime(di+'/'+f)
+            if os.path.isdir(di+'/'+f):
                 ftyp = "folder"
             else:
-                ftyp = magic.from_file(f,mime=True)
-            fsiz = os.path.getsize(f)
+                ftyp = magic.from_file(di+'/'+f,mime=True)
+            fsiz = os.path.getsize(di+'/'+f)
             conn.send(f+"\t"+repr(fsiz)+"\t"+ftyp+"\t"+time.ctime(ftim))
         time.sleep(1)
         conn.send("END")
@@ -256,7 +293,7 @@ def server():
             shash(conn,comm)
             conn.close()
         elif comm[0] == "index":
-            sindex(conn,comm)
+            sindex(conn,comm,os.getcwd())
             conn.close()
 
 
