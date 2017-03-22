@@ -25,7 +25,7 @@ def cdownload(inp, flag, filename):
             index = s2.recv(1024)
             if index == "END":
                 break
-            #print index
+            print index
             file_list.append(filename+'/'+index.split()[0])
         s2.close()
         for f in file_list:
