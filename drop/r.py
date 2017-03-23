@@ -11,12 +11,64 @@ port2 = 60005
 s1 = socket.socket()
 host1 = ""
 host2 = ""
+udp_port = 60020
+udp_ip = "127.0.0.1"
 s3 = socket.socket()
 port3 = 60009
 port4 = 60006
 host3 = ""
 host4 = ""
+udp_host = ""
 
+def ucdownload(inp, flag, filename):
+    s5 = socket.socket()    
+    s5.connect((host2,port2))
+    s5.send(inp)
+    s2 = socket.socket(socket.AF_INET,socket.SOCK_DGRAM)
+    s2.bind((udp_host,udp_port))
+    cont, addr = s2.recvfrom(1024)
+    if cont == "folder":
+        os.mkdir(filename)
+        print "Folder created..."
+        return
+    with open(filename, 'w+') as f:
+        fl = 0
+        t = time.time()
+        while True:
+            if cont == "No":
+                print "File does not exist!"
+                fl = 1
+                break
+            if cont != "End":
+                #print cont
+                #print "hi"
+                f.write(cont)
+                cont, addr = s2.recvfrom(1024)
+                print('receiving data...')
+            else:
+                break
+        #print "yo"    
+        f.close()
+        if not fl:
+            #print "hi"
+            perm = s5.recv(1024)
+            os.chmod(os.getcwd()+'/'+filename,int(perm))
+            fhas = s5.recv(1024)
+            #print fhas.split("\t")[0], hash_md5(filename)#.split("\t")[1]
+            if fhas.split("\t")[0] == hash_md5(filename):#.split("\t")[1]:
+                s5.send("same")
+                prnt = s5.recv(1024)
+                print prnt
+            else:
+                s5.send("diff")
+                s5.close()
+                s2.close()
+                ucdownload(inp, flag, filename)
+        else:
+            os.remove(filename)
+    s5.close()
+    s2.close()
+    
 def cdownload(inp, flag, filename):
     s2 = socket.socket()    
     s2.connect((host2,port2))
@@ -54,13 +106,13 @@ def cdownload(inp, flag, filename):
                 break
             
         f.close()
-    if not fl:
-        perm = s2.recv(1024)
-        os.chmod(os.getcwd()+'/'+filename,int(perm))
-        prnt = s2.recv(1024)
-        print prnt
-    else:
-        os.remove(filename)
+        if not fl:
+            perm = s2.recv(1024)
+            os.chmod(os.getcwd()+'/'+filename,int(perm))
+            prnt = s2.recv(1024)
+            print prnt
+        else:
+            os.remove(filename)
     s2.close()
 
 def chash(inp,cl_in):
@@ -117,8 +169,10 @@ def client():
             if len(inp) != 3:
                 print "Invalid number of args"
                 continue
-            if (inp[1] == 'tcp' or inp[1] == 'udp'): #and len(inp) == 3:
+            if (inp[1] == 'tcp'): #and len(inp) == 3:
                 cdownload(cl_in,inp[1],inp[2])
+            elif inp[1] == 'udp':
+                ucdownload(cl_in,inp[1],inp[2])
             else:
                 print "Invalid option"
 
@@ -150,6 +204,45 @@ def client():
         else:
             print "Invalid command!"
 
+def usdownload(comm,conn):
+    sock = socket.socket(socket.AF_INET,socket.SOCK_DGRAM)
+    fils = os.listdir(os.getcwd())
+    if comm[2] in fils:
+        if os.path.isdir(comm[2]):
+            sock.sendto("folder")
+            sock.close()
+            return
+        f = open(comm[2],'rb')
+        l = f.read(1024)
+
+        while (l):
+            sock.sendto(l, (udp_ip, udp_port))
+            time.sleep(0.5)
+            l = f.read(1024)
+
+        time.sleep(0.5)
+        sock.sendto("End", (udp_ip, udp_port))
+        time.sleep(0.5)
+        #print "yaaaaaay"
+        perm = oct(os.stat(comm[2]).st_mode)[-4:]
+        conn.send(perm)
+        f.close()
+        time.sleep(0.5)
+        com = "hash verify " + comm[2]
+        #print com
+        shash(conn,com.split())
+        #conn.send(has)
+        res = conn.recv(1024)
+        if res == "same":
+            print('Done sending')
+            conn.send(comm[2]+"\t"+repr(os.path.getsize(comm[2]))+"\t"+hash_md5(comm[2]))#, (udp_ip, udp_port)) 
+        else:
+            sock.close()
+            usdownload(comm,conn)
+    else:
+        sock.sendto("No",(udp_ip, udp_port))  
+        #print "Hi"  
+    sock.close()
 
 def sdownload(comm,conn):
     fils = os.listdir(os.getcwd())
@@ -216,7 +309,7 @@ def shash(conn,comm):
             conn.send(hashish+"\t"+time.ctime(mtim))
         else:
             conn.send("no")
-        conn.close()
+        #conn.close()
     elif comm[1] == "checkall":
         fils = os.listdir(os.getcwd())
         for f in fils:
@@ -252,8 +345,8 @@ def sindex(conn,comm,di):
             else:
                 ftyp = magic.from_file(f,mime=True)
             fsiz = os.path.getsize(f)
-            print ftim
-            if ftim >= in_epoch(comm[2]) and ftim <= in_epoch(comm[3]):
+            #print ftim
+            if ftim >= float(comm[2]) and ftim <= float(comm[3]):
                 
                 conn.send(f+"\t"+repr(fsiz)+"\t"+ftyp+"\t"+time.ctime(ftim))
         time.sleep(1)
@@ -290,8 +383,12 @@ def server():
         comm = com.split()
         print comm
         if comm[0] == "download": 
-            sdownload(comm,conn)
+            if comm[1] == "tcp":
+                sdownload(comm,conn)
+            else:
+                usdownload(comm,conn)    
             conn.close()
+
         elif comm[0] == "hash":
             shash(conn,comm)
             conn.close()
@@ -330,7 +427,7 @@ def sync():
             # print rec_hash
             if rec_hash == "no":
                 continue
-            if (not has == rec_hash.split("\t")[0]) and (in_epoch(rec_hash.split("\t")[1]) > os.path.getmtime(f)):
+            if (not has == rec_hash.split("\t")[0]) and (in_epoch(rec_hash.split("\t")[1]) > os.path.getmtime(f)) :
                 s4.close()
                 print "---------------------"
                 print f," not updated"
